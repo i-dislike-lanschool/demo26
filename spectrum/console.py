@@ -44,6 +44,9 @@ def detect_colour_depth():
         return "none"
     if os.environ.get("COLORTERM", "").lower() in ("truecolor", "24bit"):
         return "truecolor"
+    if os.name == "nt":
+        # Windows Terminal speaks truecolor; legacy conhost does 256
+        return "truecolor" if os.environ.get("WT_SESSION") else "256"
     term = os.environ.get("TERM", "")
     if "kitty" in term or "alacritty" in term:
         return "truecolor"
@@ -89,8 +92,8 @@ def _quant256(r, g, b):
     return 16 + 36 * q(r) + 6 * q(g) + q(b)
 
 
-def _quant16(r, g, b):
-    """Basic ANSI colour from the bright half of the palette."""
+def _idx16(r, g, b):
+    """Index 0..15 of the nearest basic ANSI colour."""
     idx = 0
     if r > 96:
         idx |= 1
@@ -100,7 +103,15 @@ def _quant16(r, g, b):
         idx |= 4
     if max(r, g, b) > 192:
         idx += 8 if idx < 8 else 0
-    return 30 + (idx & 7) + (60 if idx >= 8 else 0)
+    return idx
+
+
+def _fg16(i):
+    return "\x1b[%dm" % (30 + (i & 7) + (60 if i >= 8 else 0))
+
+
+def _bg16(i):
+    return "\x1b[%dm" % (40 + (i & 7) + (60 if i >= 8 else 0))
 
 
 class ConsoleScreen:
@@ -157,9 +168,9 @@ class ConsoleScreen:
                     fg = "\x1b[38;5;%dm" % _quant256(*top)
                     bg = "\x1b[48;5;%dm" % _quant256(*bot)
                 else:
-                    fg = "\x1b[%dm" % _quant16(*top)
-                    bg = "\x1b[%dm" % _quant16(*bot)
-                if top == bot and depth != "16":
+                    fg = _fg16(_idx16(*top))
+                    bg = _bg16(_idx16(*bot))
+                if top == bot:
                     line.append(bg + " ")
                     continue
                 if fg != fg_prev:
